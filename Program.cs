@@ -1,16 +1,12 @@
 ﻿using ExcelDataReader;
 using iText.IO.Font.Constants;
-using iText.Kernel.Colors;
 using iText.Kernel.Font;
 using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
-using iText.Kernel.Pdf.Canvas;
 using iText.Layout;
 using iText.Layout.Element;
-using iText.Layout.Properties;
 using MseExcelAnalysis.Models;
 using Serilog;
-using System;
 using System.Globalization;
 
 class Program
@@ -30,30 +26,35 @@ class Program
 
 			var analysisFiles = Directory.GetFiles(args[0]);
 
+			List<SheetResult> combineSheetResult = new List<SheetResult>();
+
 			foreach (var analysisFile in analysisFiles) 
 			{
 				FileInfo inputExcelFileInfo = new(analysisFile.Trim());
-				var fileNameWithoutExtension = inputExcelFileInfo.Name.Split('.').First();
-
-				string resultPdfPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, fileNameWithoutExtension + "TimesheetAnalysis.pdf");
+				
 
 				Log.Information($"Starting file analysis - {inputExcelFileInfo.Name}");
 
-				if (inputExcelFileInfo.DirectoryName != null)
-				{
-					resultPdfPath = System.IO.Path.Combine(inputExcelFileInfo.DirectoryName, fileNameWithoutExtension + "TimesheetAnalysis.pdf");
-				}
 				var result = int.TryParse(args[1].Trim(), out var analysisType);
 
 				if (analysisType == (int)AnalysisType.Attendance)
 				{
 					Log.Information("Analysis type is - Attendance");
-					var data = await ReadAttendanceExcelStreamingParallelAsync(inputExcelFileInfo.FullName);
-
-					await WritePdfAsync(data, resultPdfPath, fileNameWithoutExtension);
+					var data = await ReadAttendanceExcelStreamingParallelAsync(inputExcelFileInfo);
+					foreach (var sheetResult in data)
+					{
+						combineSheetResult.Add(sheetResult);
+					}
 				}
-				Log.Information("PDF successfully created");
+				
 			}
+
+			var teamName = args[0].Split('\\').Last();
+
+			string resultPdfPath = System.IO.Path.Combine(args[0], teamName + "TimesheetAnalysis.pdf");
+
+			await WritePdfAsync(combineSheetResult, resultPdfPath, teamName);
+			Log.Information("PDF successfully created");
 
 		}
 		catch (Exception ex)
@@ -81,16 +82,18 @@ class Program
 	// =========================
 	// Excel Streaming (Async)
 	// =========================
-	static async Task<List<SheetResult>> ReadAttendanceExcelStreamingParallelAsync(string path)
+	static async Task<List<SheetResult>> ReadAttendanceExcelStreamingParallelAsync(FileInfo filePath)
 	{
 		return await Task.Run(() =>
 		{
+			var employeeName = filePath.Name.Split('.').First();
+
 			var results = new List<SheetResult>();
 			var syncLock = new object();
 
 			System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
 
-			using var stream = File.Open(path, FileMode.Open, FileAccess.Read);
+			using var stream = File.Open(filePath.FullName, FileMode.Open, FileAccess.Read);
 			using var reader = ExcelReaderFactory.CreateReader(stream);
 
 			var sheets = new List<(string Name, List<object[]> Rows)>();
@@ -145,55 +148,40 @@ class Program
 				}
 			}
 
-			//if (!headerMap.ContainsKey("Projekt") || !headerMap.ContainsKey("Stunden"))
-			//{
-			//	return;
-			//}
-
-
 			for (int r = headerRow + 1; r < sheet.Rows.Count; r++)
 			{
 				var row = sheet.Rows[r];
-				if (row[0] == null || row[headerMap["Projekt"]]?.ToString() == null) 
+				if (row[0] == null) 
 				{ 
 					continue; 
 				}
 
-				//var isDateFirstColumn = DateTime.TryParse(
-				//			row[0].ToString(),
-				//			CultureInfo.InvariantCulture,
-				//			DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeUniversal,
-				//			out var dateTime
-				//		);
-
-
-				////var DateColumn = DateTime.ParseExact(row[0].ToString(), "dd.MM.yyyy", CultureInfo.InvariantCulture);
-				//if( !isDateFirstColumn)
-				//{
-				//	continue;
-				//}
-
 				string projekt = row[headerMap["Projekt"]]?.ToString();
+
+				if (string.IsNullOrWhiteSpace(projekt) 
+				|| projekt.Trim().ToLower() == "urlaub" 
+				|| projekt.Trim().ToLower() == "x"
+				|| projekt.Trim().ToLower() == "feiertag")
+				{
+					continue;
+				}
+
+				List<string> nonProductiveProjects = new List<string> { "krank" };
 				string stundenStr = row[headerMap["Stunden"]]?.ToString();
 
-				List<string> nonProductiveProjects = new List<string> { "urlaub", "krank", "feiertag" };
-
-				if (!string.IsNullOrWhiteSpace(projekt) || (projekt != null && projekt.ToLower() == "x"))
+				if (nonProductiveProjects.Contains(projekt.Trim().ToLowerInvariant()))
 				{
-					if (nonProductiveProjects.Contains(projekt.Trim().ToLowerInvariant()))
-					{
-						stundenStr = "8";
-					}
-					var result = decimal.TryParse(stundenStr, out var stunden);
+					stundenStr = "8";
+				}
+				var result = decimal.TryParse(stundenStr, out var stunden);
 
-					if (!projektStundenMap.ContainsKey(projekt.Trim()))
-					{
-						projektStundenMap[projekt.Trim()] = stunden;
-					}
-					else
-					{
-						projektStundenMap[projekt.Trim()] += stunden;
-					}
+				if (!projektStundenMap.ContainsKey(projekt.Trim()))
+				{
+					projektStundenMap[projekt.Trim()] = stunden;
+				}
+				else
+				{
+					projektStundenMap[projekt.Trim()] += stunden;
 				}
 			}
 
@@ -202,17 +190,14 @@ class Program
 				records.Add(new AttendanceRecord(item.Key, item.Value, item.Value/8));
 			}
 
+			var sumStunden = projektStundenMap.Sum(it => it.Value);
+			records.Add(new AttendanceRecord("Total", sumStunden, sumStunden / 8));
+
 			lock (syncLock)
 			{
-				results.Add(new SheetResult(sheet.Name, records));
+				results.Add(new SheetResult(employeeName + "-" + sheet.Name, records));
 				Log.Information("Processed {Sheet} ({Count} rows)", sheet.Name, records.Count);
 			}
-
-			//// Second pass: process sheets in parallel
-			//Parallel.ForEach(sheets, sheet =>
-			//{
-				
-			//});
 
 			return results;
 		});
@@ -222,7 +207,7 @@ class Program
 	// =========================
 	// PDF Writing + Chart (Async)
 	// =========================
-	static async Task WritePdfAsync(List<SheetResult> sheets,string outputPath, string fileNameWithoutExtension)
+	static async Task WritePdfAsync(List<SheetResult> sheets,string outputPath, string teamName)
 	{
 		await Task.Run(() =>
 		{
@@ -234,16 +219,11 @@ class Program
 			PdfFont boldFont = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
 			PdfFont regularFont = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
 
-			// Title
-			//document.Add(new Paragraph("Project Working Hours Report")
-			//	.SetFont(boldFont)
-			//	.SetFontSize(18)
-			//	.SetTextAlignment(TextAlignment.CENTER));
-			var title = fileNameWithoutExtension.ToUpper() + " - Working Reports";
+			//var title = fileNameWithoutExtension.ToUpper() + " - Working Reports";
 
 			foreach (var sheet in sheets)
 			{
-				//document.Add(new AreaBreak());
+				var title = teamName.ToUpper() + " - Working Reports";
 
 				// Sheet header
 				document.Add(new Paragraph(title + " ("+ sheet.SheetName+" )")
@@ -264,100 +244,8 @@ class Program
 				}
 
 				document.Add(table);
-
-				// Charts
-				//PdfPage chartPage = pdf.AddNewPage();
-				//PdfCanvas canvas = new PdfCanvas(chartPage);
-
-				//foreach (var r in sheet.Records)
-				//{
-				//	// Bar chart
-				//	DrawBarChart(
-				//		canvas,
-				//		new Rectangle(50, 400, 200, 200),
-				//		Convert.ToInt32( r.Stunden),
-				//		r.Projekt);
-				//}
-
-				//// Bar chart
-				//DrawBarChart(
-				//	canvas,
-				//	new Rectangle(50, 400, 200, 200),
-				//	sheet.Records.Count,
-				//	"Projects");
-
-				//// Pie chart
-				//DrawPieChart(
-				//	canvas,
-				//	400, 500,
-				//	80,
-				//	sheet.Records.Count,
-				//	sheets.Sum(s => s.Records.Count));
 			}
 		});
 	}
-
-
-	//// =========================
-	//// Simple Bar Chart Drawing
-	//// =========================
-	//static void DrawBarChart(PdfCanvas canvas, Rectangle area, int value, string label)
-	//{
-	//	float maxBarHeight = area.GetHeight() - 40;
-	//	float barHeight = Math.Min(value * 10, maxBarHeight);
-
-	//	// Axis
-	//	canvas.MoveTo(area.GetLeft(), area.GetBottom())
-	//		  .LineTo(area.GetLeft(), area.GetTop())
-	//		  .LineTo(area.GetRight(), area.GetBottom())
-	//		  .Stroke();
-
-	//	// Bar
-	//	canvas.SetFillColor(ColorConstants.BLUE);
-	//	canvas.Rectangle(
-	//		area.GetLeft() + 40,
-	//		area.GetBottom(),
-	//		60,
-	//		barHeight);
-	//	canvas.Fill();
-
-	//	// Label
-	//	canvas.BeginText()
-	//		.MoveText(area.GetLeft() + 40, area.GetBottom() + barHeight + 10)
-	//		.SetFontAndSize(iText.Kernel.Font.PdfFontFactory.CreateFont(), 10)
-	//		.ShowText($"{label}: {value}")
-	//		.EndText();
-	//}
-
-	//// =========================
-	//// Simple Pie Chart Drawing
-	//// =========================
-	//static void DrawPieChart(PdfCanvas canvas, float centerX, float centerY, float radius, int value, int total)
-	//{
-	//	float sweepAngle = 360f * value / total;
-
-	//	canvas.SetFillColor(ColorConstants.GREEN);
-	//	canvas.MoveTo(centerX, centerY);
-	//	canvas.Arc(
-	//		centerX - radius,
-	//		centerY - radius,
-	//		centerX + radius,
-	//		centerY + radius,
-	//		0,
-	//		sweepAngle);
-	//	canvas.ClosePath();
-	//	canvas.Fill();
-
-	//	canvas.SetFillColor(ColorConstants.LIGHT_GRAY);
-	//	canvas.MoveTo(centerX, centerY);
-	//	canvas.Arc(
-	//		centerX - radius,
-	//		centerY - radius,
-	//		centerX + radius,
-	//		centerY + radius,
-	//		sweepAngle,
-	//		360 - sweepAngle);
-	//	canvas.ClosePath();
-	//	canvas.Fill();
-	//}
+	
 }
