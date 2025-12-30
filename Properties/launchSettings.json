@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "MseExcelAnalysis": {
+      "commandName": "Project",
+      "commandLineArgs": "D:\\MSEAnalysisTestData 1"
+    }
+  }
+}
