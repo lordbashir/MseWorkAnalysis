@@ -2,7 +2,7 @@
   "profiles": {
     "MseExcelAnalysis": {
       "commandName": "Project",
-      "commandLineArgs": "D:\\MSEAnalysisTestData\\DesktopTeam 1"
+      "commandLineArgs": "D:\\MSEAnalysisTestData\\WebTeam 1"
     }
   }
 }
