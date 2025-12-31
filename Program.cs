@@ -28,7 +28,7 @@ class Program
 			{
 				new MseProject { ProjectName = "MBAG", OrderAmount = 120587.5m, CompletedWorkingDays = 0.0m },
 				new MseProject { ProjectName = "DTAG", OrderAmount = 274469.25m, CompletedWorkingDays = 0.0m },
-				new MseProject { ProjectName = "FUSO", OrderAmount = 120587.5m, CompletedWorkingDays = 0.0m },
+				new MseProject { ProjectName = "FUSO", OrderAmount = 42000.0m, CompletedWorkingDays = 0.0m },
 				new MseProject { ProjectName = "MSE", OrderAmount = 0.0m, CompletedWorkingDays = 0.0m },
 				new MseProject { ProjectName = "QMSR", OrderAmount = 25300.0m, CompletedWorkingDays = 0.0m },
 				new MseProject { ProjectName = "QMSR WARTUNG", OrderAmount = 14300.0m, CompletedWorkingDays = 0.0m },
