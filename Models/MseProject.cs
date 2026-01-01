@@ -9,7 +9,7 @@
 		private readonly decimal _tagessatz5 = 1120.0m;
 
 		private readonly List<string> _tagesSatz1Projects = new List<string>{"MBAG", "RAD-DB WARTUNG", "RAD-DB", "RAD-DB (AMG)", "QMSR" };
-		private readonly List<string> _tagesSatz3Projects = new List<string> { "SOLARSCHMIEDE" };
+		private readonly List<string> _tagesSatz3Projects = new List<string> { "SOLARSCHMEIDE" };
 		private readonly List<string> _tagesSatz4Projects = new List<string> { "VESUV WARTUNG" };
 		private readonly List<string> _tagesSatz5Projects = new List<string> { "FUSO" };
 

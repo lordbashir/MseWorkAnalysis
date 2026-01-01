@@ -54,7 +54,7 @@ class Program
 				new MseProject { ProjectName = "OTHERS", OrderAmount = 0.0m, CompletedWorkingDays = 0.0m }
 			};
 
-			var analysisFiles = Directory.GetFiles(args[0]);
+			var analysisFiles = Directory.GetFiles(args[0]).Where(af => af.EndsWith(".xlsm"));
 
 			List<SheetResult> combineSheetResult = new List<SheetResult>();
 
@@ -163,14 +163,22 @@ class Program
 			var teamName = args[0].Split('\\').Last();
 
 			string resultPdfPath = System.IO.Path.Combine(args[0], teamName + "TimesheetAnalysis.pdf");
+			if (File.Exists(resultPdfPath)) 
+			{
+				File.Delete(resultPdfPath);
+			}
 
 			await WritePdfAsync(combineSheetResult, resultPdfPath, teamName);
 			Log.Information("PDF successfully created");
 
 			// Create project summary for a team
-			var calculated = mseProjects.Where(mp => mp.CompletedWorkingDays > 0).ToList();
+			var calculated = mseProjects.Where(mp => mp.CompletedWorkingDays > 0).ToList().OrderBy(mp => mp.ProjectName).ToList();
 			
 			string summaryPdfPath = System.IO.Path.Combine(args[0], teamName + "ProjectSummary.pdf");
+			if (File.Exists(summaryPdfPath))
+			{
+				File.Delete(summaryPdfPath);
+			}
 
 			await WriteSummaryPdfAsync(calculated, summaryPdfPath, teamName);
 			Log.Information("Summary PDF successfully created");
@@ -354,12 +362,23 @@ class Program
 				table.AddHeaderCell(new Cell().Add(new Paragraph("Projekt").SetFont(boldFont)));
 				table.AddHeaderCell(new Cell().Add(new Paragraph("Stunden").SetFont(boldFont)));
 				table.AddHeaderCell(new Cell().Add(new Paragraph("Tagen").SetFont(boldFont)));
+				
+				var records = sheet.Records.Where(p => p.Projekt.Trim().ToLowerInvariant() != "total").OrderBy(r => r.Projekt).ToList();
 
-				foreach (var r in sheet.Records)
+				foreach (var r in records)
 				{
 					table.AddCell(new Cell().Add(new Paragraph(r.Projekt).SetFont(regularFont)));
 					table.AddCell(new Cell().Add(new Paragraph(r.Stunden.ToString("F2", CultureInfo.InvariantCulture)).SetFont(regularFont)));
 					table.AddCell(new Cell().Add(new Paragraph(r.Tagen.ToString("F2", CultureInfo.InvariantCulture)).SetFont(regularFont)));
+				}
+
+				// Write Total
+				var totalRecord = sheet.Records.Where(p => p.Projekt.Trim().ToLowerInvariant() == "total").OrderBy(r => r.Projekt).ToList();
+				foreach (var r in totalRecord)
+				{
+					table.AddCell(new Cell().Add(new Paragraph(r.Projekt).SetFont(boldFont)));
+					table.AddCell(new Cell().Add(new Paragraph(r.Stunden.ToString("F2", CultureInfo.InvariantCulture)).SetFont(boldFont)));
+					table.AddCell(new Cell().Add(new Paragraph(r.Tagen.ToString("F2", CultureInfo.InvariantCulture)).SetFont(boldFont)));
 				}
 
 				document.Add(table);
